@@ -78,29 +78,36 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 			$scope['vars']['dir'] = 'ls';
 		});
 
+		$farser->parse();
+
 		$this->assertEquals('bazbazls', $farser->parse());
 	}
 
 	public function testLoopingExample()
 	{
 		$farser = new Farser();
-		$farser->setRaw('{$A loop="3"}{foo}{/$A}');
+		$farser->setRaw('{$A loop="3"}asdf{foo}{/$A}');
 		
 		$farser->addCallback('A', function (& $scope)
 		{
+			// $loopNum = $scope['tagParms']['loop'];
+			$loopNum = 3;
+
 			$scope['vars']['foo'] = 'baz';
-			$loopNum = $scope['tagParms']['loop'];
 
-			$newContent = '';
+			$replaceWith = $scope['replaceWith'][0];
+			
+			$replaceWith['vars']['foo'] = 'baz';
 
-			for ($i=1; $i <= $loopNum; $i++) { 
-				$newContent .= $scope['tagContentParsed'];
-			}
+			$scope['replaceWith'][] = $replaceWith;
+			$scope['replaceWith'][] = $replaceWith;
 
-			$scope['tagContentParsed'] = $newContent;
+			// for ($i=1; $i <= $loopNum-1; $i++) { 
+			// 	$scope['replaceWith'][] = $replaceWith;
+			// }
 		});
 
-		$this->assertEquals('bazbazbaz', $farser->parse());
+		$this->assertEquals('asdfbazasdfbazasdfbaz', $farser->parse());
 	}
 
 	public function testLoopingNestedExample()
@@ -113,13 +120,12 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 			$scope['vars']['foo'] = 'A';
 			$loopNum = $scope['tagParms']['loop'];
 
-			$newContent = '';
-
-			for ($i=1; $i <= $loopNum; $i++) { 
-				$newContent .= $scope['tagContentParsed'];
+			for ($i = 0; $i < $loopNum; $i++) { 
+				$iterations[] = $scope['replaceWith'][0];
 			}
 
-			$scope['tagContentParsed'] = $newContent;
+			$scope['replaceWith'] = $iterations;
+
 		});
 
 		$farser->addCallback('B', function (& $scope)
@@ -127,18 +133,58 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 			$scope['vars']['foo'] = 'B';
 			$loopNum = $scope['tagParms']['loop'];
 
-			$newContent = '';
-
-			for ($i=1; $i <= $loopNum; $i++) { 
-				$newContent .= $scope['tagContentParsed'];
+			for ($i = 0; $i < $loopNum; $i++) { 
+				$iterations[] = $scope['replaceWith'][0];
 			}
 
-			$scope['tagContentParsed'] = $newContent;
+			$scope['replaceWith'] = $iterations;
+
 		});
 
 		$farser->parse();
 
 		$this->assertEquals('ABBABBABB', $farser->parse());
+	}
+
+	public function testLoopingNestedVarsExample()
+	{
+		$farser = new Farser();
+		$farser->setRaw('{$A loop="3"}{foo}{$B loop="2"}{foo}{/$B}{/$A}');
+		
+		$farser->addCallback('A', function (& $scope)
+		{
+			$scope['vars']['foo'] = 'A';
+			$loopNum = $scope['tagParms']['loop'];
+
+			$replaceWith = $scope['replaceWith'][0];
+
+			foreach (array('X', 'Y', 'Z') as $char) {
+				$replaceWith['vars']['foo'] = $char;
+				$iterations[] = $replaceWith;
+			}
+
+			$scope['replaceWith'] = $iterations;
+		});
+
+		$farser->addCallback('B', function (& $scope)
+		{
+			$loopNum = $scope['tagParms']['loop'];
+
+			$iterations = array();
+			
+			$replaceWith = $scope['replaceWith'][0];
+			$replaceWith['vars']['foo'] = 'B';
+
+			for ($i = 0; $i < $loopNum; $i++) { 
+				$iterations[] = $replaceWith;
+			}
+
+			$scope['replaceWith'] = $iterations;
+		});
+
+		$farser->parse();
+
+		$this->assertEquals('XBBYBBZBB', $farser->parse());
 	}
 
 	public function testCallbackCache()
@@ -174,16 +220,13 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 
 		$farser->addCallback('B', function (& $scope)
 		{
-			// $scope['vars']['foo'] = 'B';
 			$loopNum = $scope['tagParms']['loop'];
 
-			$newContent = '';
-
-			for ($i=1; $i <= $loopNum; $i++) { 
-				$newContent .= $scope['tagContentParsed'];
+			for ($i = 0; $i < $loopNum; $i++) { 
+				$iterations[] = $scope['replaceWith'][0];
 			}
 
-			$scope['tagContentParsed'] = $newContent;
+			$scope['replaceWith'] = $iterations;
 		});
 
 		$out = $farser->parse();
@@ -192,6 +235,15 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 		// exit;
 
 		$this->assertEquals('3bbb', $out);
+	}
+
+	public function testSetGlobalVars()
+	{
+		$farser = new Farser();
+		$farser->setRaw('{$A}{foo}{$B}{foo}{/$B}{/$A}');
+		$farser->setGlobalVar('foo', 'baz');
+
+		$this->assertEquals('bazbaz', $farser->parse());	
 	}
 
 

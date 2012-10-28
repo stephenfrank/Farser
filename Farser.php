@@ -21,11 +21,29 @@ class Farser
         if ($path) {
             $this->getTemplate($path);
         }
+
+        // Set up the global context
+        $this->global = array(
+            'tagName' => 'global',
+            'vars' => array(),
+            'replaceWith' => array(
+                array(
+                    'content' => '',
+                    'vars' => array(),
+                    'innerScopes' => array()
+                )
+            )
+        );
     }
 
     public function getGlobal()
     {
         return $this->global;
+    }
+
+    public function setGlobalVar($key, $val)
+    {
+        $this->global['vars'][$key] = $val;
     }
 
     /**
@@ -110,19 +128,15 @@ class Farser
     {
         $lines = explode("\n", $this->raw);
 
-        // $globalScope = new Scope;
-        $globalScope = array();
-        $cursor = 0;
-
-        $this->global = array(
-            'tagName' => 'global',
-            'fullTag' => $this->raw,
-            'tagContentParsed' => $this->raw,
-            'vars' => array(),
-            'innerScopes' => array()
+        $this->global['fullTag'] = $this->raw;
+        
+        $this->global['replaceWith'][0]['content'] = $this->raw;
+        $this->global['replaceWith'][0]['vars'] = $this->global['vars'];
+        
+        $this->global['replaceWith'][0]['innerScopes'] = $this->findInnerScopes(
+            $this->raw,
+            $this->global['vars']
         );
-
-        $this->global['innerScopes'] = $this->findInnerScopes($this->raw);
 
         $this->global['tagContentParsed'] = $this->replaceVars($this->global);
 
@@ -145,38 +159,61 @@ class Farser
         // from previous parsing
         $cacheKey = md5(serialize($scope));
 
-        if (isset($this->parserCache[$cacheKey])) {
-            $scope['tagContentParsed'] = $this->parserCache[$cacheKey];
-            return $scope['tagContentParsed'];
-        }
+        // if (isset($this->parserCache[$cacheKey])) {
+        //     $scope['tagContentParsed'] = $this->parserCache[$cacheKey];
+        //     return $scope['tagContentParsed'];
+        // }
 
         $this->log('Replace scope: '.$scope['tagName']);
 
+        $output = '';
+
         $tagName = $scope['tagName'];
         $fullTag = $scope['fullTag'];
-        $tagContentParsed = $scope['tagContentParsed'];
+                
 
-        foreach ($scope['innerScopes'] as & $innerScope) {
+
+        foreach ($scope['replaceWith'] as & $replacement) {
+            // $replacement['content'];
+            // $replacement['vars'];
+            // $replacement['innerScopes'];
+
+            $replacementContent = $replacement['content'];
+
             $this->log("Replace $tagName innerScopes: ");
+            foreach ($replacement['innerScopes'] as & $innerScope) {
+                
 
-            $innerTagParsed = $this->replaceVars($innerScope);
-            $innerTag = $innerScope['fullTag'];
-            $innerFullTag = $innerScope['fullTag'];
+                $innerTagParsed = $this->replaceVars($innerScope);
+                $innerTagName = $innerScope['tagName'];
+                $innerTag = $innerScope['fullTag'];
+                $innerFullTag = $innerScope['fullTag'];
 
-            $this->log("Replace in $tagName:\n$tagContentParsed\n---\n$innerFullTag\n+++\n$innerTagParsed\n---");
 
-            $tagContentParsed = str_replace($innerFullTag, $innerTagParsed, $tagContentParsed);
-            // $tagContentParsed = preg_replace('/'.preg_quote($innerFullTag, '/').'/', $innerTagParsed, $tagContentParsed, 1);
+                $this->log("Replace in $tagName innerTag $innerTagName:\n$replacementContent\n---\n$innerFullTag\n+++\n$innerTagParsed\n---");
+
+                // $tagContentParsed = str_replace($innerFullTag, $innerTagParsed, $tagContentParsed);
+                $replacementContent = preg_replace(
+                    '/' . preg_quote($innerFullTag, '/') . '/',
+                    $innerTagParsed,
+                    $replacementContent,
+                    1
+                );
+            }
+
+            $varsInScope = array_merge($scope['vars'], $replacement['vars']);
+
+            foreach ($varsInScope as $key => $var) {
+                $this->log("Replace variable in $tagName: {".$key."} -> $var");
+                $replacementContent = str_replace('{'.$key.'}', (string) $var, $replacementContent); 
+            }
+
+            $output .= $replacementContent;
         }
 
-        foreach ($scope['vars'] as $key => $var) {
-            $this->log("Replace variable in $tagName: {".$key."} -> $var");
-            $tagContentParsed = str_replace('{'.$key.'}', $var, $tagContentParsed); 
-        }
+        $this->parserCache[$cacheKey] = $output;
 
-        $this->parserCache[$cacheKey] = $tagContentParsed;
-
-        return $scope['tagContentParsed'] = $tagContentParsed;
+        return $scope['tagContentParsed'] = $output;
     }
 
     /**
@@ -226,7 +263,9 @@ class Farser
                 foreach ($tagParms as $k => $tagParm) {
                     foreach ($inheritedVars as $key => $var) {
                         $count = 0;
-                        $tagParms[$k] = str_replace('{'.$key.'}', $var, $tagParm, $count);
+                        
+                        $tagParms[$k] = str_replace('{'.$key.'}', (string) $var, $tagParm, $count);
+
                         if ($count > 0) {
                             $this->log('Variable as argument replaced {'.$key.'} -> '.$var);
                         }
@@ -239,13 +278,18 @@ class Farser
                     'tagName' => $tagName,
                     'tagParms' => $tagParms,
                     'tagParmStr' => $tagParmStr,
-                    'vars' => $vars,
-                    // 'content' => $tagContent,
+                    'content' => $tagContent,
                     // 'tagStart' => $tagStartLeft,
                     // 'tagEnd' => $tagEndRight,
                     'fullTag' => $fullTag,
-                    'tagContentParsed' => $tagContent,
-                    'innerScopes' => array()
+                    'vars' => $vars,
+                    'replaceWith' => array(
+                        array(
+                            'vars' => array(),
+                            'content' => $tagContent,
+                            'innerScopes' => array(),
+                        )
+                    ),
                 );
 
 
@@ -267,12 +311,31 @@ class Farser
                     }
                 }
 
+                $loopedTagContent = '';
+
 
                 $this->log("Found tag scope: ".print_r($newScope, true));
 
-                $newScope['innerScopes'] = $this->findInnerScopes($tagContent, $newScope['vars']);
+                foreach ($newScope['replaceWith'] as $k => $replacement) {
+                    // if (! isset($replacement['content'])) {
+                    //     var_dump(__FILE__.':'.__LINE__); var_dump($replacement); exit;
+                    //     exit;
+                    // }
+
+                    $innerVars = array_merge($newScope['vars'], $replacement['vars']);
+
+                    $replacement['innerScopes'] = $this->findInnerScopes(
+                        $replacement['content'],
+                        $vars
+                    );
+
+                    $newScope['replaceWith'][$k] = $replacement;
+                }
+
+                // var_dump($newScope['innerScopes']);
 
                 $container[] = $newScope;
+
 
                 $cursor = $tagEndRight - 1;
             }
