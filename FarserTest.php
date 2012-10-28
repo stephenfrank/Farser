@@ -57,7 +57,7 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 		
 		$farser->addCallback('A', function (& $scope)
 		{
-			$scope['vars']['foo'] = 'baz';
+			$scope['tagVars']['foo'] = 'baz';
 		});
 
 		$this->assertEquals('baz', $farser->parse());
@@ -70,12 +70,12 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 		
 		$farser->addCallback('A', function (& $scope)
 		{
-			$scope['vars']['foo'] = 'baz';
+			$scope['tagVars']['foo'] = 'baz';
 		});
 
 		$farser->addCallback('B', function (& $scope)
 		{
-			$scope['vars']['dir'] = 'ls';
+			$scope['tagVars']['dir'] = 'ls';
 		});
 
 		$farser->parse();
@@ -90,21 +90,18 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 		
 		$farser->addCallback('A', function (& $scope)
 		{
-			// $loopNum = $scope['tagParms']['loop'];
+			// $loopNum = $scope['tagVars']['loop'];
 			$loopNum = 3;
 
-			$scope['vars']['foo'] = 'baz';
+			$scope['tagVars']['foo'] = 'baz';
 
-			$replaceWith = $scope['replaceWith'][0];
-			
-			$replaceWith['vars']['foo'] = 'baz';
+			$replaceWith = array('content' => $scope['content']);
 
-			$scope['replaceWith'][] = $replaceWith;
-			$scope['replaceWith'][] = $replaceWith;
+			$replaceWith['tagVars']['foo'] = 'baz';
 
-			// for ($i=1; $i <= $loopNum-1; $i++) { 
-			// 	$scope['replaceWith'][] = $replaceWith;
-			// }
+			for ($i=1; $i <= $loopNum; $i++) { 
+				$scope['replaceWith'][] = $replaceWith;
+			}
 		});
 
 		$this->assertEquals('asdfbazasdfbazasdfbaz', $farser->parse());
@@ -117,11 +114,13 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 		
 		$farser->addCallback('A', function (& $scope)
 		{
-			$scope['vars']['foo'] = 'A';
-			$loopNum = $scope['tagParms']['loop'];
+			$scope['tagVars']['foo'] = 'A';
+			$loopNum = $scope['tagVars']['loop'];
+
+			$replaceWith = array('content' => $scope['content']);
 
 			for ($i = 0; $i < $loopNum; $i++) { 
-				$iterations[] = $scope['replaceWith'][0];
+				$iterations[] = $replaceWith;
 			}
 
 			$scope['replaceWith'] = $iterations;
@@ -130,11 +129,13 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 
 		$farser->addCallback('B', function (& $scope)
 		{
-			$scope['vars']['foo'] = 'B';
-			$loopNum = $scope['tagParms']['loop'];
+			$scope['tagVars']['foo'] = 'B';
+			$loopNum = $scope['tagVars']['loop'];
+			
+			$replaceWith = array('content' => $scope['content']);
 
 			for ($i = 0; $i < $loopNum; $i++) { 
-				$iterations[] = $scope['replaceWith'][0];
+				$iterations[] = $replaceWith;
 			}
 
 			$scope['replaceWith'] = $iterations;
@@ -153,10 +154,10 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 		
 		$farser->addCallback('A', function (& $scope)
 		{
-			$scope['vars']['foo'] = 'A';
-			$loopNum = $scope['tagParms']['loop'];
+			$scope['tagVars']['foo'] = 'A';
+			$loopNum = $scope['tagVars']['loop'];
 
-			$replaceWith = $scope['replaceWith'][0];
+			$replaceWith = array('content' => $scope['content']);
 
 			foreach (array('X', 'Y', 'Z') as $char) {
 				$replaceWith['vars']['foo'] = $char;
@@ -168,11 +169,11 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 
 		$farser->addCallback('B', function (& $scope)
 		{
-			$loopNum = $scope['tagParms']['loop'];
+			$loopNum = $scope['tagVars']['loop'];
 
 			$iterations = array();
 			
-			$replaceWith = $scope['replaceWith'][0];
+			$replaceWith = array('content' => $scope['content']);
 			$replaceWith['vars']['foo'] = 'B';
 
 			for ($i = 0; $i < $loopNum; $i++) { 
@@ -196,7 +197,7 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 		$farser->addCallback('A', function (& $scope) use (& $count)
 		{
 			$count += 1;
-			$scope['vars']['foo'] = 'baz';
+			$scope['tagVars']['foo'] = 'baz';
 		});
 		$out = $farser->parse();
 
@@ -215,15 +216,17 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 		// $farser->addCallback('A', function (& $scope) use (& $count)
 		// {
 		// 	$count += 1;
-		// 	$scope['vars']['foo'] = 'baz';
+		// 	$scope['tagVars']['foo'] = 'baz';
 		// });
 
 		$farser->addCallback('B', function (& $scope)
 		{
-			$loopNum = $scope['tagParms']['loop'];
+			$loopNum = $scope['tagVars']['loop'];
+
+			$replaceWith = array('content' => $scope['content']);
 
 			for ($i = 0; $i < $loopNum; $i++) { 
-				$iterations[] = $scope['replaceWith'][0];
+				$iterations[] = $replaceWith;
 			}
 
 			$scope['replaceWith'] = $iterations;

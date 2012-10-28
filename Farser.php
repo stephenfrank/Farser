@@ -25,7 +25,8 @@ class Farser
         // Set up the global context
         $this->global = array(
             'tagName' => 'global',
-            'vars' => array(),
+            'tagVars' => array(),
+            'inheritedVars' => array(),
             'replaceWith' => array(
                 array(
                     'content' => '',
@@ -43,7 +44,7 @@ class Farser
 
     public function setGlobalVar($key, $val)
     {
-        $this->global['vars'][$key] = $val;
+        $this->global['inheritedVars'][$key] = $val;
     }
 
     /**
@@ -131,11 +132,10 @@ class Farser
         $this->global['fullTag'] = $this->raw;
         
         $this->global['replaceWith'][0]['content'] = $this->raw;
-        $this->global['replaceWith'][0]['vars'] = $this->global['vars'];
         
         $this->global['replaceWith'][0]['innerScopes'] = $this->findInnerScopes(
             $this->raw,
-            $this->global['vars']
+            $this->global['inheritedVars']
         );
 
         $this->global['tagContentParsed'] = $this->replaceVars($this->global);
@@ -170,8 +170,6 @@ class Farser
 
         $tagName = $scope['tagName'];
         $fullTag = $scope['fullTag'];
-                
-
 
         foreach ($scope['replaceWith'] as & $replacement) {
             // $replacement['content'];
@@ -201,7 +199,7 @@ class Farser
                 );
             }
 
-            $varsInScope = array_merge($scope['vars'], $replacement['vars']);
+            $varsInScope = array_merge($scope['inheritedVars'], $scope['tagVars'], $replacement['vars']);
 
             foreach ($varsInScope as $key => $var) {
                 $this->log("Replace variable in $tagName: {".$key."} -> $var");
@@ -260,11 +258,11 @@ class Farser
                 extract($tag); // $tagName, $tagParmStr, $tagEnd, $tagStartLeft, $tagStartRight
 
                 // Check for variables as arguments
-                foreach ($tagParms as $k => $tagParm) {
+                foreach ($tagVars as $k => $tagParm) {
                     foreach ($inheritedVars as $key => $var) {
                         $count = 0;
                         
-                        $tagParms[$k] = str_replace('{'.$key.'}', (string) $var, $tagParm, $count);
+                        $tagVars[$k] = str_replace('{'.$key.'}', (string) $var, $tagParm, $count);
 
                         if ($count > 0) {
                             $this->log('Variable as argument replaced {'.$key.'} -> '.$var);
@@ -272,24 +270,13 @@ class Farser
                     }  
                 }
 
-                $vars = array_merge($inheritedVars, $tagParms);
-
                 $newScope = array(
                     'tagName' => $tagName,
-                    'tagParms' => $tagParms,
                     'tagParmStr' => $tagParmStr,
                     'content' => $tagContent,
-                    // 'tagStart' => $tagStartLeft,
-                    // 'tagEnd' => $tagEndRight,
                     'fullTag' => $fullTag,
-                    'vars' => $vars,
-                    'replaceWith' => array(
-                        array(
-                            'vars' => array(),
-                            'content' => $tagContent,
-                            'innerScopes' => array(),
-                        )
-                    ),
+                    'tagVars' => $tagVars,
+                    'inheritedVars' => $inheritedVars,
                 );
 
 
@@ -311,31 +298,36 @@ class Farser
                     }
                 }
 
-                $loopedTagContent = '';
-
+                if (! isset($newScope['replaceWith'])) {
+                    $newScope['replaceWith'][] = array(
+                        'vars' => array(),
+                        'content' => $tagContent,
+                        'innerScopes' => array(),
+                    );
+                }
 
                 $this->log("Found tag scope: ".print_r($newScope, true));
 
                 foreach ($newScope['replaceWith'] as $k => $replacement) {
-                    // if (! isset($replacement['content'])) {
-                    //     var_dump(__FILE__.':'.__LINE__); var_dump($replacement); exit;
-                    //     exit;
-                    // }
 
-                    $innerVars = array_merge($newScope['vars'], $replacement['vars']);
+                    if (! isset($replacement['vars'])) {
+                        $replacement['vars'] = array();
+                    }
+                    if (! isset($replacement['innerScopes'])) {
+                        $replacement['innerScopes'] = array();
+                    }
+
+                    $inheritedInnerVars = array_merge($newScope['tagVars'], $newScope['inheritedVars'], $replacement['vars']);
 
                     $replacement['innerScopes'] = $this->findInnerScopes(
                         $replacement['content'],
-                        $vars
+                        $inheritedInnerVars
                     );
 
                     $newScope['replaceWith'][$k] = $replacement;
                 }
 
-                // var_dump($newScope['innerScopes']);
-
                 $container[] = $newScope;
-
 
                 $cursor = $tagEndRight - 1;
             }
@@ -367,7 +359,7 @@ class Farser
         $tagStartLeft = $pos;
         $tagName = '';
         $tagParmStr = '';
-        $tagParms = array();
+        $tagVars = array();
 
         $pos += 2;
 
@@ -402,7 +394,7 @@ class Farser
         }
 
         if ($tagParmStr) {
-            $tagParms = $this->parmsToArray($tagParmStr);
+            $tagVars = $this->parmsToArray($tagParmStr);
 
         }
 
@@ -412,7 +404,7 @@ class Farser
 
         $openTag = substr($raw, $tagStartLeft, $tagStartRight - $tagStartLeft);
 
-        $tag = compact('tagName', 'openTag', 'tagParmStr', 'tagParms', 'tagStartRight', 'tagStartLeft');
+        $tag = compact('tagName', 'openTag', 'tagParmStr', 'tagVars', 'tagStartRight', 'tagStartLeft');
 
         return $tag;
     }
@@ -421,13 +413,13 @@ class Farser
     {
         preg_match_all('/(\w+?)="(.*?)"/', $parmStr, $matches);
 
-        $tagParms = array();
+        $tagVars = array();
         
         foreach ($matches[1] as $k => $parmKey) {
-            $tagParms[$parmKey] = $matches[2][$k];
+            $tagVars[$parmKey] = $matches[2][$k];
         }
 
-        return $tagParms;
+        return $tagVars;
     }
 
     /**
