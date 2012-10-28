@@ -8,6 +8,7 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 	{
 		$farser = new Farser();
 		$farser->setRaw('-- {$A}foo{/$A} --');
+
 		$this->assertEquals('-- foo --', $farser->parse());
 	}
 
@@ -79,5 +80,119 @@ class Farser_Test extends PHPUnit_Framework_TestCase {
 
 		$this->assertEquals('bazbazls', $farser->parse());
 	}
+
+	public function testLoopingExample()
+	{
+		$farser = new Farser();
+		$farser->setRaw('{$A loop="3"}{foo}{/$A}');
+		
+		$farser->addCallback('A', function (& $scope)
+		{
+			$scope['vars']['foo'] = 'baz';
+			$loopNum = $scope['tagParms']['loop'];
+
+			$newContent = '';
+
+			for ($i=1; $i <= $loopNum; $i++) { 
+				$newContent .= $scope['tagContentParsed'];
+			}
+
+			$scope['tagContentParsed'] = $newContent;
+		});
+
+		$this->assertEquals('bazbazbaz', $farser->parse());
+	}
+
+	public function testLoopingNestedExample()
+	{
+		$farser = new Farser();
+		$farser->setRaw('{$A loop="3"}{foo}{$B loop="2"}{foo}{/$B}{/$A}');
+		
+		$farser->addCallback('A', function (& $scope)
+		{
+			$scope['vars']['foo'] = 'A';
+			$loopNum = $scope['tagParms']['loop'];
+
+			$newContent = '';
+
+			for ($i=1; $i <= $loopNum; $i++) { 
+				$newContent .= $scope['tagContentParsed'];
+			}
+
+			$scope['tagContentParsed'] = $newContent;
+		});
+
+		$farser->addCallback('B', function (& $scope)
+		{
+			$scope['vars']['foo'] = 'B';
+			$loopNum = $scope['tagParms']['loop'];
+
+			$newContent = '';
+
+			for ($i=1; $i <= $loopNum; $i++) { 
+				$newContent .= $scope['tagContentParsed'];
+			}
+
+			$scope['tagContentParsed'] = $newContent;
+		});
+
+		$farser->parse();
+
+		$this->assertEquals('ABBABBABB', $farser->parse());
+	}
+
+	public function testCallbackCache()
+	{
+		$farser = new Farser();
+		$farser->setRaw('{$A}{foo}{/$A}{$A}{foo}{/$A}{$A}{foo}{/$A}');
+		$count = 0;
+
+		$farser->addCallback('A', function (& $scope) use (& $count)
+		{
+			$count += 1;
+			$scope['vars']['foo'] = 'baz';
+		});
+		$out = $farser->parse();
+
+		// echo $farser->dumpLog();
+		// exit;
+
+		$this->assertEquals('bazbazbaz', $out);
+		$this->assertEquals(1, $count);
+	}
+
+	public function testPassingVariablesAsArguments()
+	{
+		$farser = new Farser();
+		$farser->setRaw('{$A foo="3"}{foo}{$B loop="{foo}"}b{/$B}{/$A}');
+
+		// $farser->addCallback('A', function (& $scope) use (& $count)
+		// {
+		// 	$count += 1;
+		// 	$scope['vars']['foo'] = 'baz';
+		// });
+
+		$farser->addCallback('B', function (& $scope)
+		{
+			// $scope['vars']['foo'] = 'B';
+			$loopNum = $scope['tagParms']['loop'];
+
+			$newContent = '';
+
+			for ($i=1; $i <= $loopNum; $i++) { 
+				$newContent .= $scope['tagContentParsed'];
+			}
+
+			$scope['tagContentParsed'] = $newContent;
+		});
+
+		$out = $farser->parse();
+
+		// echo $farser->dumpLog();
+		// exit;
+
+		$this->assertEquals('3bbb', $out);
+	}
+
 
 }

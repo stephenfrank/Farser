@@ -1,7 +1,7 @@
 Farser
 ======
 
-An experiment in parsing (in PHP) that's pretty simple minded 
+An experiment in template parsing (in PHP) that's pretty simple minded 
 and tries to implement nested scopes in a non-scary way.
 
 And... look ma, no regex!

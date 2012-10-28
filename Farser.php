@@ -1,17 +1,31 @@
 <?php
 
-class Farser {
+class Farser
+{
 
     private $raw = '';
     private $log = array();
 
     private $callbacks = array();
 
+    private $callbackCache = array();
+    private $parserCache = array();
+    private $global = array();
+
+    /**
+     * Ye old'e constructor
+     * @param [type] $path [description]
+     */
     public function __construct($path = null)
     {
         if ($path) {
             $this->getTemplate($path);
         }
+    }
+
+    public function getGlobal()
+    {
+        return $this->global;
     }
 
     /**
@@ -20,44 +34,78 @@ class Farser {
      * Callbacks can modify the variables within
      * scope and process the tag content
      * 
-     * @param [type]  $tagName  [description]
-     * @param Closure $callback [description]
+     * @param string  $tagName  Tag name of call
+     * @param Closure $callback Callback Closure
      */
     public function addCallback($tagName, Closure $callback)
     {
         $this->callbacks[$tagName] = $callback;
     }
 
+    /**
+     * Get Callback
+     * @param  string $key Callback key
+     * @return Closure
+     */
     public function getCallback($key)
     {
         return $this->callbacks[$key];
     }
 
+    /**
+     * Check if the callback exists
+     * @param  string $key Callback key
+     * @return boolean
+     */
     public function callBackExists($key)
     {
         return isset($this->callbacks[$key]);
     }
 
+    /**
+     * Add a line to the log
+     * @param  [type] $str [description]
+     * @return [type]      [description]
+     */
     public function log($str)
     {
         $this->log[] = $str;
     }
 
+    /**
+     * Dump the log
+     * @return void
+     */
     public function dumpLog()
     {
         print_r(implode("\n", $this->log));
     }
 
+    /**
+     * Set Raw
+     * Sets the raw template content
+     * @param string $raw
+     */
     public function setRaw($raw)
     {
         $this->raw = $raw;
     }
 
+    /**
+     * Get and set template from file
+     * @param  string $path Path to file
+     * @return void
+     */
     public function getTemplate($path)
     {
         $this->raw = file_get_contents($path);
     }
 
+    /**
+     * Parse template
+     * 
+     * @return string Parsed template content
+     */
     public function parse()
     {
         $lines = explode("\n", $this->raw);
@@ -66,7 +114,7 @@ class Farser {
         $globalScope = array();
         $cursor = 0;
 
-        $globalscope = array(
+        $this->global = array(
             'tagName' => 'global',
             'fullTag' => $this->raw,
             'tagContentParsed' => $this->raw,
@@ -74,17 +122,34 @@ class Farser {
             'innerScopes' => array()
         );
 
-        $globalscope['innerScopes'] = $this->innerScope($this->raw);
+        $this->global['innerScopes'] = $this->findInnerScopes($this->raw);
 
-        $globalscope['tagContentParsed'] = $this->varReplace($globalscope);
+        $this->global['tagContentParsed'] = $this->replaceVars($this->global);
 
         // $this->dumpLog();
 
-        return $globalscope['tagContentParsed'];
+        return $this->global['tagContentParsed'];
     }
 
-    protected function varReplace(& $scope)
+    /**
+     * Replace vars
+     * Recursively replaces variable stubs
+     * with their values. Works from 
+     * the innermost tag outwards
+     * @param  array      $scope Scope array
+     * @return string        Parsed content
+     */
+    protected function replaceVars(& $scope)
     {
+        // Caching attempts to retrieve results
+        // from previous parsing
+        $cacheKey = md5(serialize($scope));
+
+        if (isset($this->parserCache[$cacheKey])) {
+            $scope['tagContentParsed'] = $this->parserCache[$cacheKey];
+            return $scope['tagContentParsed'];
+        }
+
         $this->log('Replace scope: '.$scope['tagName']);
 
         $tagName = $scope['tagName'];
@@ -92,30 +157,35 @@ class Farser {
         $tagContentParsed = $scope['tagContentParsed'];
 
         foreach ($scope['innerScopes'] as & $innerScope) {
-            
-            $innerTagParsed = $this->varReplace($innerScope);
+            $this->log("Replace $tagName innerScopes: ");
+
+            $innerTagParsed = $this->replaceVars($innerScope);
             $innerTag = $innerScope['fullTag'];
             $innerFullTag = $innerScope['fullTag'];
 
-            $this->log("Replace in $tagName:\n$tagContentParsed\n---\n$innerFullTag\n+++$innerTagParsed\n---");
+            $this->log("Replace in $tagName:\n$tagContentParsed\n---\n$innerFullTag\n+++\n$innerTagParsed\n---");
 
             $tagContentParsed = str_replace($innerFullTag, $innerTagParsed, $tagContentParsed);
-
-            
+            // $tagContentParsed = preg_replace('/'.preg_quote($innerFullTag, '/').'/', $innerTagParsed, $tagContentParsed, 1);
         }
 
         foreach ($scope['vars'] as $key => $var) {
+            $this->log("Replace variable in $tagName: {".$key."} -> $var");
             $tagContentParsed = str_replace('{'.$key.'}', $var, $tagContentParsed); 
         }
 
-        // $this->log("Replace:\n===\n$tagContentParsed\n---\n$fullTag\n+++$tagContentParsed");
-
-        // $tagContentParsed = str_replace($fullTag, $tagContentParsed, $tagContentParsed);
+        $this->parserCache[$cacheKey] = $tagContentParsed;
 
         return $scope['tagContentParsed'] = $tagContentParsed;
     }
 
-    protected function innerScope($raw, $inheritedVars = array()) // , & $container
+    /**
+     * Find Inner Scope
+     * @param  string $raw           Raw template context
+     * @param  array  $inheritedVars Inherited variables from outer scope
+     * @return array                Container of found scopes
+     */
+    protected function findInnerScopes($raw, $inheritedVars = array()) // , & $container
     {
         $cursor = 0;
         $container = array();
@@ -142,38 +212,69 @@ class Farser {
 
                 extract($endPos); // $tagEndRight, $tagEndLeft
 
-                // Extract out the tag content
-                $tagContent = substr($raw, $tagStartRight, ($tagEndLeft - $tagStartRight));
+                // $this->posdump($tagStartRight, $raw);
+                // $this->posdump($tagEndLeft, $raw);
 
-                $vars = array_merge($inheritedVars, $tagParms);
+                // Extract out the tag content
+                $tagContent = substr($raw, $tagStartRight + 1, ($tagEndLeft - $tagStartRight) - 1);
 
                 $fullTag = substr($raw, $tagStartLeft, $tagEndRight - $tagStartLeft);
 
-                $newScope = $tag +
-                array(
+                extract($tag); // $tagName, $tagParmStr, $tagEnd, $tagStartLeft, $tagStartRight
+
+                // Check for variables as arguments
+                foreach ($tagParms as $k => $tagParm) {
+                    foreach ($inheritedVars as $key => $var) {
+                        $count = 0;
+                        $tagParms[$k] = str_replace('{'.$key.'}', $var, $tagParm, $count);
+                        if ($count > 0) {
+                            $this->log('Variable as argument replaced {'.$key.'} -> '.$var);
+                        }
+                    }  
+                }
+
+                $vars = array_merge($inheritedVars, $tagParms);
+
+                $newScope = array(
+                    'tagName' => $tagName,
+                    'tagParms' => $tagParms,
+                    'tagParmStr' => $tagParmStr,
                     'vars' => $vars,
                     // 'content' => $tagContent,
-                    'tagStart' => $tagStartLeft,
-                    'tagEnd' => $tagEndRight,
+                    // 'tagStart' => $tagStartLeft,
+                    // 'tagEnd' => $tagEndRight,
                     'fullTag' => $fullTag,
                     'tagContentParsed' => $tagContent,
                     'innerScopes' => array()
                 );
 
-                // Callbacks act on the scope to modify it
-                if ($this->callBackExists($tagName)) {
-                    $callback = $this->getCallback($tagName);
 
-                    $callback($newScope);
+                // Caching attempts to retrieve results
+                // from previous callback operations since
+                // callbacks could be costly
+                $cacheKey = md5(serialize($newScope));
+
+                if ($this->callBackExists($tagName)) {
+                    if (isset($this->callbackCache[$cacheKey])) {
+                        $newScope = $this->callbackCache[$cacheKey];
+                    } else {
+                        // Callbacks act on the scope to modify it
+                        $callback = $this->getCallback($tagName);
+
+                        $callback($newScope);
+
+                        $this->callbackCache[$cacheKey] = $newScope;
+                    }
                 }
+
 
                 $this->log("Found tag scope: ".print_r($newScope, true));
 
-                $newScope['innerScopes'] = $this->innerScope($tagContent, $newScope['vars']);
+                $newScope['innerScopes'] = $this->findInnerScopes($tagContent, $newScope['vars']);
 
                 $container[] = $newScope;
 
-                $cursor = $tagEndRight;
+                $cursor = $tagEndRight - 1;
             }
 
             $cursor += 1;
@@ -203,6 +304,7 @@ class Farser {
         $tagStartLeft = $pos;
         $tagName = '';
         $tagParmStr = '';
+        $tagParms = array();
 
         $pos += 2;
 
@@ -214,16 +316,36 @@ class Farser {
             $pos += 1;
         }
 
-        while (substr($raw, $pos, 1) != '}') {
-            $tagParmStr .= substr($raw, $pos, 1);
-            $pos += 1;
+        $openBraces = 1;
+
+        // if (substr($raw, $pos, 1) == '}') {
+        //     $this->posdump($pos, $raw);exit;
+        // }
+
+        if (substr($raw, $pos, 1) != '}') {
+            while ($openBraces > 0) {
+                $pos += 1;
+
+                if (substr($raw, $pos, 1) == '}') {
+                    $openBraces -= 1;
+                }
+                if (substr($raw, $pos, 1) == '{') {
+                    $openBraces += 1;
+                }
+
+                $tagParmStr .= substr($raw, $pos, 1);
+                
+            }
         }
 
-        $pos += 1;
+        if ($tagParmStr) {
+            $tagParms = $this->parmsToArray($tagParmStr);
 
-        $tagParms = $this->parmsToArray($tagParmStr);
+        }
 
         $tagStartRight = $pos;
+
+        // $this->posdump($tagStartRight, $raw);exit;
 
         $openTag = substr($raw, $tagStartLeft, $tagStartRight - $tagStartLeft);
 
@@ -293,11 +415,19 @@ class Farser {
         return compact('tagEndLeft', 'tagEndRight');
     }
 
+    /**
+     * Position dump
+     * Helper function - dumps the position of a char
+     * @param  int  $pos
+     * @param  string  $str
+     * @param  boolean $return 
+     * @return void
+     */
     public function posdump($pos, $str, $return = false)
     {
         $out = "\n==========\n";
 
-        $firsthalf = substr($str, 0, $pos - 1);
+        $firsthalf = substr($str, 0, $pos);
         $char = substr($str, $pos, 1);
         $otherhalf = substr($str, $pos + 1);
 
