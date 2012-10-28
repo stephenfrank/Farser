@@ -1,0 +1,7 @@
+Farser
+======
+
+An experiment in parsing that's pretty simple.
+Tries to implement nested scopes in a non-scary way.
+
+And... look ma, no regex!
